@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXFileReference section */
-		6B8181262FD9B3AA00399A87 /* FSO.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FSO.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		6B8181262FD9B3AA00399A87 /* FSO.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = FSO.app; path = "Sort It Out.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -48,9 +48,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		6B8181252FD9B3AA00399A87 /* FSO */ = {
+		6B8181252FD9B3AA00399A87 /* Sort It Out */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 6B8181312FD9B3AC00399A87 /* Build configuration list for PBXNativeTarget "FSO" */;
+			buildConfigurationList = 6B8181312FD9B3AC00399A87 /* Build configuration list for PBXNativeTarget "Sort It Out" */;
 			buildPhases = (
 				6B8181222FD9B3AA00399A87 /* Sources */,
 				6B8181232FD9B3AA00399A87 /* Frameworks */,
@@ -63,10 +63,10 @@
 			fileSystemSynchronizedGroups = (
 				6B8181282FD9B3AA00399A87 /* FSO */,
 			);
-			name = FSO;
+			name = "Sort It Out";
 			packageProductDependencies = (
 			);
-			productName = FSO;
+			productName = "Sort It Out";
 			productReference = 6B8181262FD9B3AA00399A87 /* FSO.app */;
 			productType = "com.apple.product-type.application";
 		};
@@ -99,7 +99,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				6B8181252FD9B3AA00399A87 /* FSO */,
+				6B8181252FD9B3AA00399A87 /* Sort It Out */,
 			);
 		};
 /* End PBXProject section */
@@ -252,8 +252,11 @@
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SELECTED_FILES = readonly;
+				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Sort It Out";
+				INFOPLIST_KEY_CFBundleName = "Sort It Out";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -269,7 +272,7 @@
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 26.3;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = DonDon.FSO;
+				PRODUCT_BUNDLE_IDENTIFIER = DonDon.SortItOut;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
@@ -296,8 +299,11 @@
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SELECTED_FILES = readonly;
+				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Sort It Out";
+				INFOPLIST_KEY_CFBundleName = "Sort It Out";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -313,7 +319,7 @@
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 26.3;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = DonDon.FSO;
+				PRODUCT_BUNDLE_IDENTIFIER = DonDon.SortItOut;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
@@ -341,7 +347,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		6B8181312FD9B3AC00399A87 /* Build configuration list for PBXNativeTarget "FSO" */ = {
+		6B8181312FD9B3AC00399A87 /* Build configuration list for PBXNativeTarget "Sort It Out" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				6B8181322FD9B3AC00399A87 /* Debug */,
