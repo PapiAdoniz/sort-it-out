@@ -41,13 +41,3 @@ The first time you open it, macOS may say the app is from an unidentified develo
 ## Windows
 
 There is no Windows installer. Sort It Out uses the Mac file picker, sandboxed folder access, and Apple’s audio frameworks. Those pieces do not run on Windows, so version 1.0 is Mac only.
-
-## Build from source
-
-Open `FSO.xcodeproj` in Xcode 26 or later and run the **Sort It Out** scheme. To build a release from the command line:
-
-```bash
-xcodebuild -project FSO.xcodeproj -scheme "Sort It Out" -configuration Release -destination "platform=macOS" -sdk macosx build
-```
-
-The built app is `Sort It Out.app`.
