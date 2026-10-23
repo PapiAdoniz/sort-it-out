@@ -35,6 +35,26 @@ enum SmartPlaceFolderMode: String, CaseIterable, Identifiable {
     }
 }
 
+/// How Smart Place handles missing or messy album info when using Artist / Album Folders.
+enum SmartPlaceAlbumPlacement: String, CaseIterable, Identifiable {
+    case organized = "Organized"
+    case cautious = "Cautious"
+    case loose = "Loose in artist folder"
+
+    var id: String { rawValue }
+
+    var description: String {
+        switch self {
+        case .organized:
+            return "Use a real album folder when the album is known. Put songs with no album, or an album tag that repeats the artist, in Artist/_Unsorted/."
+        case .cautious:
+            return "Only file into Artist/Album/ when that song’s own tags, filename, or MusicBrainz match say so. Do not guess the album from other songs in the download. Everything else goes to Artist/_Unsorted/."
+        case .loose:
+            return "Skip an album folder when the album name matches the artist. Songs with no album can sit in the artist folder."
+        }
+    }
+}
+
 @Observable
 @MainActor
 final class OrganizerViewModel {
@@ -96,11 +116,13 @@ final class OrganizerViewModel {
     private static let destinationDisplayNameKey = "smartPlace.destinationFolderDisplayName"
     private static let useAlbumFoldersKey = "smartPlace.useAlbumFolders"
     private static let folderModeKey = "smartPlace.folderMode"
+    private static let albumPlacementKey = "smartPlace.albumPlacement"
 
     private(set) var smartWatchFolder: URL?
     private(set) var smartDestinationFolder: URL?
     var smartPlaceUsesAlbumFolders = false
     var smartPlaceFolderMode: SmartPlaceFolderMode = .artistOnly
+    var smartPlaceAlbumPlacement: SmartPlaceAlbumPlacement = .organized
     private var smartWatchBookmark: Data?
     private var smartDestinationBookmark: Data?
 
@@ -130,6 +152,10 @@ final class OrganizerViewModel {
         smartWatchBookmark != nil && smartDestinationBookmark != nil
     }
 
+    var canTidyLooseLibrarySongs: Bool {
+        smartDestinationFolder != nil && smartPlaceUsesAlbumFolders && !isScanning && !isOrganizing
+    }
+
     var smartWatchDisplayName: String {
         smartWatchFolder?.lastPathComponent
             ?? UserDefaults.standard.string(forKey: Self.watchDisplayNameKey)
@@ -156,6 +182,15 @@ final class OrganizerViewModel {
             smartPlaceFolderMode = usesAlbumFolders ? .artistAlbum : .artistOnly
         }
         smartPlaceUsesAlbumFolders = smartPlaceFolderMode == .artistAlbum
+        if let rawPlacement = defaults.string(forKey: Self.albumPlacementKey),
+           let placement = SmartPlaceAlbumPlacement(rawValue: rawPlacement) {
+            smartPlaceAlbumPlacement = placement
+        }
+    }
+
+    func setSmartPlaceAlbumPlacement(_ placement: SmartPlaceAlbumPlacement) {
+        smartPlaceAlbumPlacement = placement
+        UserDefaults.standard.set(placement.rawValue, forKey: Self.albumPlacementKey)
     }
 
     func setSmartPlaceUsesAlbumFolders(_ usesAlbumFolders: Bool) {
@@ -480,6 +515,7 @@ final class OrganizerViewModel {
         statusMessage = loadingActivity.title
 
         let useAlbumFolders = smartPlaceUsesAlbumFolders
+        let albumPlacement = smartPlaceAlbumPlacement
         let report = loadingReporter()
 
         do {
@@ -488,6 +524,7 @@ final class OrganizerViewModel {
                     watchFolder: watch,
                     destinationFolder: destination,
                     useAlbumFolders: useAlbumFolders,
+                    albumPlacement: albumPlacement,
                     onProgress: report
                 )
             }.value
@@ -562,6 +599,62 @@ final class OrganizerViewModel {
         isOrganizing = false
     }
 
+    func tidyLooseLibrarySongs() async {
+        guard let library = smartDestinationFolder else {
+            errorMessage = "Pick a library folder in Settings first."
+            showError = true
+            return
+        }
+        guard smartPlaceUsesAlbumFolders else {
+            errorMessage = "Tidy loose songs needs Artist / Album Folders in Settings."
+            showError = true
+            return
+        }
+        if showSmartPlaceReview || showSmartPlaceSelectionSheet {
+            statusMessage = "Finish the Smart Place review that's already open."
+            return
+        }
+
+        isOrganizing = true
+        statusMessage = "Looking for loose songs in your library."
+        let placement = smartPlaceAlbumPlacement
+        do {
+            let plans = try await Task.detached(priority: .userInitiated) {
+                try await SmartPlaceService.planLooseLibraryTracks(
+                    library: library,
+                    albumPlacement: placement
+                )
+            }.value
+
+            isOrganizing = false
+            guard !plans.isEmpty else {
+                statusMessage = "No loose songs found in artist folders."
+                completionMessage = "Every song is already in an album or _Unsorted folder."
+                clearCompletionMessage(after: 5)
+                return
+            }
+
+            let folderCounts = Self.placementCounts(for: plans, library: library)
+            smartPlaceReadyResult = SmartPlaceService.PlanResult(
+                plans: plans,
+                matchedCount: folderCounts.songsInExistingFolders,
+                newArtistCount: 0,
+                needsArtistCount: 0,
+                ambiguities: [],
+                duplicates: []
+            )
+            smartPlaceReviewLines = Self.reviewLines(for: plans, library: library)
+            smartPlaceReviewConfirmed = false
+            showSmartPlaceReview = true
+            statusMessage = "Review where these loose songs will go."
+        } catch {
+            isOrganizing = false
+            errorMessage = "Can't tidy the library. \(error.localizedDescription)"
+            showError = true
+            statusMessage = "Tidy failed."
+        }
+    }
+
     func handleSmartPlaceSelections(_ selections: [String: URL], _ duplicateChoices: [URL: Bool]) {
         guard let watch = smartWatchFolder, let destination = smartDestinationFolder else {
             return
@@ -602,7 +695,8 @@ final class OrganizerViewModel {
                             forArtistFolder: artistFolder,
                             fileURL: track.sourceURL,
                             albumName: track.albumName,
-                            useAlbumFolders: useAlbumFolders
+                            useAlbumFolders: useAlbumFolders,
+                            albumPlacement: smartPlaceAlbumPlacement
                         )
                         let placed = SmartPlaceService.placeFile(
                             track.sourceURL,

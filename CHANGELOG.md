@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.3.0 — October 23, 2026
+
+Smarter album folders and a way to clean up songs already sitting loose in an artist folder.
+
+- Pick how Smart Place handles messy album tags: Organized, Cautious, or Loose in artist folder
+- Put songs with no album, or an album tag that repeats the artist, in `Artist/_Unsorted/`
+- Still file a real album like `ye` under `Ye` when the names only differ by spelling
+- Read album names from `Artist - Album - Title` filenames when tags are empty
+- Tidy loose songs in library moves songs out of the artist folder into album or `_Unsorted` folders, with the same review step as Smart Place
+
 ## 1.2.0 — October 23, 2026
 
 Smart Place shows the destination and waits before it moves anything.

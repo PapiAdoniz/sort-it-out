@@ -206,6 +206,8 @@ struct HelpSheet: View {
                 tip("It matches that top artist folder when the artist name is the same.")
                 tip("Use Scan to review artist, format, and quality, and to preview a song. Smart Place is what moves files into your library.")
                 tip("With Artist / Album Folders, one song is enough to make Artist/Album/. A song with its own album name keeps that album.")
+                tip("Messy tags: use Organized for normal downloads, Cautious when tags are often wrong, or Loose if you want singles in the artist folder.")
+                tip("Tidy loose songs in Settings moves songs sitting in an artist folder into album or _Unsorted subfolders, with the same review step as Smart Place.")
                 tip("Unknown artists or more than one matching artist folder may ask you to choose where the music should go.")
                 tip("Use the x button in settings to remove configured watch, library, or tracked folders.")
             }

@@ -127,6 +127,7 @@ enum SmartPlaceService {
         watchFolder: URL,
         destinationFolder: URL,
         useAlbumFolders: Bool = false,
+        albumPlacement: SmartPlaceAlbumPlacement = .organized,
         onProgress: (@Sendable (Progress) -> Void)? = nil
     ) async throws -> PlanResult {
         MusicMetadataReader.clearCache()
@@ -197,15 +198,17 @@ enum SmartPlaceService {
             }
         }
 
-        applyFolderReleaseConsensus(
-            root: watchFolder.standardizedFileURL,
-            filesBySourceFolder: Dictionary(grouping: watchFiles) {
-                $0.deletingLastPathComponent().standardizedFileURL
-            },
-            detectedArtistsByFile: &detectedArtistsByFile,
-            albumByFile: &albumByFile,
-            releaseByFile: &releaseByFile
-        )
+        if albumPlacement != .cautious {
+            applyFolderReleaseConsensus(
+                root: watchFolder.standardizedFileURL,
+                filesBySourceFolder: Dictionary(grouping: watchFiles) {
+                    $0.deletingLastPathComponent().standardizedFileURL
+                },
+                detectedArtistsByFile: &detectedArtistsByFile,
+                albumByFile: &albumByFile,
+                releaseByFile: &releaseByFile
+            )
+        }
 
         onProgress?(Progress(
             title: "Choosing folders",
@@ -250,7 +253,9 @@ enum SmartPlaceService {
             artistToFiles[artist]?.append(fileURL)
         }
 
-        let filingAlbumByFile = filingAlbums(artistToFiles: artistToFiles, albumByFile: albumByFile)
+        let filingAlbumByFile = albumPlacement == .cautious
+            ? albumByFile
+            : filingAlbums(artistToFiles: artistToFiles, albumByFile: albumByFile)
         var claimedDestinations: Set<String> = []
 
         // Process each artist
@@ -279,7 +284,8 @@ enum SmartPlaceService {
                         forArtistFolder: artistFolderURL,
                         fileURL: fileURL,
                         albumName: filingAlbumByFile[fileURL],
-                        useAlbumFolders: useAlbumFolders
+                        useAlbumFolders: useAlbumFolders,
+                        albumPlacement: albumPlacement
                     )
                     let placed = placeFile(fileURL, in: targetFolder, claimed: &claimedDestinations)
                     if placed.destination.standardizedFileURL == fileURL.standardizedFileURL {
@@ -323,7 +329,8 @@ enum SmartPlaceService {
                         forArtistFolder: artistFolderURL,
                         fileURL: fileURL,
                         albumName: filingAlbumByFile[fileURL],
-                        useAlbumFolders: useAlbumFolders
+                        useAlbumFolders: useAlbumFolders,
+                        albumPlacement: albumPlacement
                     )
                     let placed = placeFile(fileURL, in: targetFolder, claimed: &claimedDestinations)
                     if placed.destination.standardizedFileURL == fileURL.standardizedFileURL {
@@ -626,7 +633,7 @@ enum SmartPlaceService {
         for (artist, files) in artistToFiles where files.count > 1 {
             let realNames = files.compactMap { file -> String? in
                 guard let album = albumByFile[file], album != "Unknown Artist" else { return nil }
-                guard !MusicMetadataReader.folderNamesMatch(album, artist) else { return nil }
+                guard !MusicMetadataReader.albumNameDuplicatesArtist(album, artist) else { return nil }
                 return album
             }
             guard let shared = sharedAlbumName(in: realNames) else { continue }
@@ -634,7 +641,7 @@ enum SmartPlaceService {
             for file in files {
                 let own = albumByFile[file]
                 let missing = own == nil || own == "Unknown Artist"
-                let namedForArtist = own.map { MusicMetadataReader.folderNamesMatch($0, artist) } ?? false
+                let namedForArtist = own.map { MusicMetadataReader.albumNameDuplicatesArtist($0, artist) } ?? false
                 if missing || namedForArtist {
                     result[file] = shared
                 }
@@ -866,7 +873,8 @@ enum SmartPlaceService {
         forArtistFolder artistFolderURL: URL,
         fileURL: URL,
         albumName: String? = nil,
-        useAlbumFolders: Bool
+        useAlbumFolders: Bool,
+        albumPlacement: SmartPlaceAlbumPlacement = .organized
     ) async -> URL {
         let resolvedAlbum: String?
         if let albumName {
@@ -878,15 +886,89 @@ enum SmartPlaceService {
             return artistFolderURL
         }
 
-        if let resolvedAlbum {
-            let album = MusicMetadataReader.cleanAlbumName(resolvedAlbum)
-            if album != "Unknown Artist",
-               !MusicMetadataReader.folderNamesMatch(album, artistFolderURL.lastPathComponent) {
-                return albumFolder(named: album, in: artistFolderURL)
+        let artistName = artistFolderURL.lastPathComponent
+        switch albumPlacement {
+        case .loose:
+            if let resolvedAlbum {
+                let album = MusicMetadataReader.cleanAlbumName(resolvedAlbum)
+                if album != "Unknown Artist",
+                   !MusicMetadataReader.folderNamesMatch(album, artistName) {
+                    return albumFolder(named: album, in: artistFolderURL)
+                }
+            }
+            return artistFolderURL
+
+        case .organized, .cautious:
+            if let resolvedAlbum {
+                let album = MusicMetadataReader.cleanAlbumName(resolvedAlbum)
+                if album != "Unknown Artist" {
+                    if MusicMetadataReader.albumNameDuplicatesArtist(album, artistName) {
+                        return unsortedAlbumFolder(in: artistFolderURL)
+                    }
+                    return albumFolder(named: album, in: artistFolderURL)
+                }
+            }
+            return unsortedAlbumFolder(in: artistFolderURL)
+        }
+    }
+
+    /// Moves songs sitting directly in an artist folder into album or _Unsorted subfolders.
+    static func planLooseLibraryTracks(
+        library: URL,
+        albumPlacement: SmartPlaceAlbumPlacement
+    ) async throws -> [MusicFilePlan] {
+        let artistFolders = existingArtistFolders(in: library)
+        var plans: [MusicFilePlan] = []
+        var claimedDestinations = Set<String>()
+
+        for artistFolder in artistFolders {
+            let looseFiles = try looseAudioFiles(in: artistFolder)
+            guard !looseFiles.isEmpty else { continue }
+            let artistName = artistFolder.lastPathComponent
+
+            for fileURL in looseFiles {
+                let targetFolder = await resolvedDestinationFolder(
+                    forArtistFolder: artistFolder,
+                    fileURL: fileURL,
+                    albumName: nil,
+                    useAlbumFolders: true,
+                    albumPlacement: albumPlacement
+                )
+                let placed = placeFile(fileURL, in: targetFolder, claimed: &claimedDestinations)
+                if placed.destination.standardizedFileURL == fileURL.standardizedFileURL {
+                    continue
+                }
+                plans.append(MusicFilePlan(
+                    sourceURL: fileURL,
+                    sourceOrigin: library.standardizedFileURL,
+                    artist: artistName,
+                    destinationURL: placed.destination
+                ))
             }
         }
 
-        return artistFolderURL
+        return plans.sorted {
+            $0.sourceURL.lastPathComponent.localizedCaseInsensitiveCompare($1.sourceURL.lastPathComponent) == .orderedAscending
+        }
+    }
+
+    private static func looseAudioFiles(in artistFolder: URL) throws -> [URL] {
+        let contents = try FileManager.default.contentsOfDirectory(
+            at: artistFolder,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        )
+        return contents.filter { url in
+            let values = try? url.resourceValues(forKeys: [.isRegularFileKey])
+            guard values?.isRegularFile == true else { return false }
+            return MusicMetadataReader.isSupportedAudioFile(url)
+        }
+    }
+
+    private static let unsortedAlbumFolderName = "_Unsorted"
+
+    private static func unsortedAlbumFolder(in artistFolder: URL) -> URL {
+        albumFolder(named: unsortedAlbumFolderName, in: artistFolder)
     }
 
     private static func albumFolder(named album: String, in artistFolder: URL) -> URL {

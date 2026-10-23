@@ -152,11 +152,12 @@ enum MusicMetadataReader {
         }
         cacheLock.unlock()
 
-        let result = await readMetadataString(from: url, identifiers: [
+        let tagged = await readMetadataString(from: url, identifiers: [
             .commonIdentifierAlbumName,
             .iTunesMetadataAlbum,
             .id3MetadataAlbumTitle
         ]).map { sanitizeArtistName($0) }
+        let result = tagged ?? albumFromFilename(url.deletingPathExtension().lastPathComponent)
 
         cacheLock.lock()
         albumCache[cacheKey] = result
@@ -225,6 +226,18 @@ enum MusicMetadataReader {
         }
 
         return name.isEmpty ? nil : name
+    }
+
+    private static func albumFromFilename(_ filename: String) -> String? {
+        let separators = [" - ", " – ", " — "]
+        for separator in separators {
+            let parts = filename.components(separatedBy: separator)
+            guard parts.count >= 3 else { continue }
+            let album = nameWithoutLeadingTrackNumber(parts[1])
+            if album.isEmpty || isTrackNumber(album) { continue }
+            return sanitizeArtistName(album)
+        }
+        return nil
     }
 
     private static func artistFromFilename(_ filename: String) -> String? {
@@ -326,6 +339,14 @@ enum MusicMetadataReader {
         let left = lhs.trimmingCharacters(in: .whitespacesAndNewlines)
         let right = rhs.trimmingCharacters(in: .whitespacesAndNewlines)
         return left.compare(right, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+    }
+
+    /// True when the album tag is just the artist name again, not a real title like ye under Ye.
+    static func albumNameDuplicatesArtist(_ album: String, _ artist: String) -> Bool {
+        let left = album.trimmingCharacters(in: .whitespacesAndNewlines)
+        let right = artist.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !left.isEmpty, !right.isEmpty else { return false }
+        return left == right
     }
 
     static func sanitizeArtistName(_ name: String) -> String {

@@ -155,6 +155,54 @@ struct SettingsSheet: View {
                         .buttonStyle(.plain)
                     }
                 }
+
+                if viewModel.smartPlaceFolderMode == .artistAlbum {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Messy album tags")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(AppTheme.textPrimary)
+                        Text("Downloads from many sources often have wrong or missing album tags. Pick how strict Smart Place should be.")
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.textSecondary)
+
+                        ForEach(SmartPlaceAlbumPlacement.allCases) { placement in
+                            Button {
+                                viewModel.setSmartPlaceAlbumPlacement(placement)
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: viewModel.smartPlaceAlbumPlacement == placement ? "checkmark.circle.fill" : "circle")
+                                        .font(.title3)
+                                        .foregroundStyle(viewModel.smartPlaceAlbumPlacement == placement ? AppTheme.accent : AppTheme.textSecondary)
+
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(placement.rawValue)
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundStyle(AppTheme.textPrimary)
+                                        Text(placement.description)
+                                            .font(.caption2)
+                                            .foregroundStyle(AppTheme.textSecondary)
+                                    }
+
+                                    Spacer(minLength: 0)
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 8)
+                                .background(
+                                    viewModel.smartPlaceAlbumPlacement == placement ? AppTheme.accent.opacity(0.12) : AppTheme.rowFill,
+                                    in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+
+                        Button("Tidy loose songs in library") {
+                            dismiss()
+                            Task { await viewModel.tidyLooseLibrarySongs() }
+                        }
+                        .buttonStyle(SubtleButtonStyle())
+                        .disabled(!viewModel.canTidyLooseLibrarySongs)
+                    }
+                }
             }
         }
     }

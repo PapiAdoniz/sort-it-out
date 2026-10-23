@@ -6,7 +6,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP="${1:-"$ROOT/build/DerivedData/Build/Products/Release/Sort It Out.app"}"
 DIST="$ROOT/dist"
 STAGING="$DIST/staging"
-VERSION="1.2.0"
+VERSION="1.3.0"
 RW_DMG="$DIST/Sort.It.Out-${VERSION}-rw.dmg"
 DMG="$DIST/Sort.It.Out-${VERSION}.dmg"
 VOLUME="Sort It Out"
@@ -50,7 +50,7 @@ let titleAttrs: [NSAttributedString.Key: Any] = [
 let titleSize = title.size(withAttributes: titleAttrs)
 title.draw(at: NSPoint(x: (CGFloat(width) - titleSize.width) / 2, y: CGFloat(height) - 78), withAttributes: titleAttrs)
 
-let subtitle = "Version 1.2  ·  Drag the app to Applications" as NSString
+let subtitle = "Version 1.3  ·  Drag the app to Applications" as NSString
 let subtitleAttrs: [NSAttributedString.Key: Any] = [
     .font: NSFont(name: "Avenir Next", size: 14) ?? NSFont.systemFont(ofSize: 14),
     .foregroundColor: NSColor(calibratedWhite: 0.72, alpha: 1)
