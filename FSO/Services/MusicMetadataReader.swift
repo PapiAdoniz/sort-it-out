@@ -370,25 +370,64 @@ enum MusicMetadataReader {
     }
 
     static func sanitizePrimaryArtistName(_ name: String) -> String {
-        let patterns = [
+        sanitizeArtistName(firstListedArtist(name))
+    }
+
+    /// The lead name in a shared credit. "Trippie Redd//Drake" and "Trippie Redd, Kodak Black" stay Trippie Redd. "AC/DC" and "Tyler, The Creator" stay whole.
+    static func firstListedArtist(_ name: String) -> String {
+        var primary = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let featured = [
             #"\s*[\(\[]\s*(feat\.?|ft\.?|featuring|with)\b.*$"#,
             #"\s+(feat\.?|ft\.?|featuring|with)\b.*$"#,
             #"\s+x\s+.*$"#
         ]
-
-        var primary = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        for pattern in patterns {
-            if let range = primary.range(
-                of: pattern,
-                options: [.regularExpression, .caseInsensitive]
-            ) {
+        for pattern in featured {
+            if let range = primary.range(of: pattern, options: [.regularExpression, .caseInsensitive]) {
                 primary = String(primary[..<range.lowerBound])
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 break
             }
         }
 
-        return sanitizeArtistName(primary)
+        if let range = primary.range(of: "//") {
+            let lead = String(primary[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !lead.isEmpty { primary = lead }
+        } else if let range = primary.range(of: "__") {
+            let left = String(primary[..<range.lowerBound])
+            if left.contains(where: \.isWhitespace) {
+                let lead = left.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !lead.isEmpty { primary = lead }
+            }
+        } else if let range = primary.range(of: "/") {
+            let left = String(primary[..<range.lowerBound])
+            let right = String(primary[range.upperBound...])
+            if left.contains(where: \.isWhitespace) || right.contains(where: \.isWhitespace) {
+                let lead = left.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !lead.isEmpty { primary = lead }
+            }
+        }
+
+        let shared = [
+            #"\s+&\s+.*$"#,
+            #"\s+and\s+.*$"#,
+            #"\s+;\s+.*$"#
+        ]
+        for pattern in shared {
+            if let range = primary.range(of: pattern, options: [.regularExpression, .caseInsensitive]) {
+                primary = String(primary[..<range.lowerBound])
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                break
+            }
+        }
+
+        if let comma = primary.range(of: ",") {
+            let left = String(primary[..<comma.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if left.contains(where: \.isWhitespace) {
+                primary = left
+            }
+        }
+
+        return primary
     }
 
     /// Name before a shared credit such as "A & B" or "A and B".

@@ -24,7 +24,7 @@ Supported audio includes MP3, M4A, AAC, FLAC, WAV, AIFF, OGG, WMA, and ALAC.
 
 ## Install on a Mac
 
-1. Download [`Sort.It.Out-1.3.0.dmg`](https://github.com/PapiAdoniz/sort-it-out/releases/tag/v1.3.0).
+1. Download [`Sort.It.Out-1.3.1.dmg`](https://github.com/PapiAdoniz/sort-it-out/releases/tag/v1.3.1).
 2. Open the disk image.
 3. Drag **Sort It Out** onto **Applications**.
 4. Eject the disk image and open Sort It Out from Applications.

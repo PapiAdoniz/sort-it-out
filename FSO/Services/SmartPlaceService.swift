@@ -239,13 +239,8 @@ enum SmartPlaceService {
             let sourceFolder = fileURL.deletingLastPathComponent().standardizedFileURL
             let ownArtist = detectedArtistsByFile[fileURL] ?? "Unknown Artist"
             let groupedArtist = albumArtistByFile[fileURL] ?? majorityArtistsBySourceFolder[sourceFolder]
-            // A featured credit can follow the album artist. A different artist keeps their own folder.
-            let artist: String
-            if let groupedArtist, ownArtist == "Unknown Artist" || artistsAreSame(ownArtist, groupedArtist) {
-                artist = groupedArtist
-            } else {
-                artist = ownArtist
-            }
+            // The artist most of that album or download belongs to owns the folder, including featured credits.
+            let artist = groupedArtist ?? ownArtist
 
             if artistToFiles[artist] == nil {
                 artistToFiles[artist] = []
@@ -783,10 +778,16 @@ enum SmartPlaceService {
     }
 
     static func artistFolder(named artist: String, in destinationFolder: URL) -> URL {
-        if MusicMetadataReader.folderNamesMatch(destinationFolder.lastPathComponent, artist) {
+        let name = MusicMetadataReader.sanitizePrimaryArtistName(artist)
+        if MusicMetadataReader.folderNamesMatch(destinationFolder.lastPathComponent, name) {
             return destinationFolder
         }
-        return destinationFolder.appendingPathComponent(artist, isDirectory: true)
+        if let existing = existingArtistFolders(in: destinationFolder).first(where: {
+            MusicMetadataReader.folderNamesMatch($0.lastPathComponent, name)
+        }) {
+            return existing
+        }
+        return destinationFolder.appendingPathComponent(name, isDirectory: true)
     }
 
     static func uniqueDestinationURL(in folder: URL, filename: String, reserved: Set<String> = []) -> URL {

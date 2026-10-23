@@ -11,7 +11,7 @@ enum MusicBrainzMetadata {
         let releaseGroupID: String?
     }
 
-    private static let userAgent = "SortItOut/1.3 ( https://musicbrainz.org/doc/MusicBrainz_API )"
+    private static let userAgent = "SortItOut/1.3.1 ( https://musicbrainz.org/doc/MusicBrainz_API )"
     private static let throttle = RequestThrottle()
     private static let cache = MatchCache()
 

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.3.1 — October 23, 2026
+
+Fix Smart Place creating extra artist folders for featured credits.
+
+- File `Trippie Redd//Drake`, `Trippie Redd, Kodak Black`, and similar credits under the lead artist, not a new top-level folder
+- Keep real artist names like `AC/DC` and `Tyler, The Creator` intact
+- Match an existing artist folder before creating another with the same lead name
+- File featured tracks into the album folder when most of that download belongs to one artist
+
 ## 1.3.0 — October 23, 2026
 
 Smarter album folders and a way to clean up songs already sitting loose in an artist folder.

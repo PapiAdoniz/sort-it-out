@@ -81,10 +81,11 @@ enum MusicOrganizer {
 
     /// Uses the scan folder itself when it is already named for this artist.
     private static func artistFolder(named artist: String, under root: URL) -> URL {
-        if MusicMetadataReader.folderNamesMatch(root.lastPathComponent, artist) {
+        let name = MusicMetadataReader.sanitizePrimaryArtistName(artist)
+        if MusicMetadataReader.folderNamesMatch(root.lastPathComponent, name) {
             return root
         }
-        return root.appendingPathComponent(artist, isDirectory: true)
+        return root.appendingPathComponent(name, isDirectory: true)
     }
 
     /// Skips a song that already sits inside any folder under the scan root.
