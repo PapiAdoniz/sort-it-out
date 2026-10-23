@@ -11,7 +11,7 @@ enum MusicBrainzMetadata {
         let releaseGroupID: String?
     }
 
-    private static let userAgent = "SortItOut/1.1 ( https://musicbrainz.org/doc/MusicBrainz_API )"
+    private static let userAgent = "SortItOut/1.2 ( https://musicbrainz.org/doc/MusicBrainz_API )"
     private static let throttle = RequestThrottle()
     private static let cache = MatchCache()
 
@@ -83,7 +83,7 @@ enum MusicBrainzMetadata {
         if let title, let album, let artist {
             queries.append("recording:\(quoted(title)) AND release:\(quoted(album)) AND artist:\(quoted(artist))")
         }
-        if let title {
+        if let title, artist == nil {
             queries.append("recording:\(quoted(title))")
         }
         if title == nil, let album, let artist {
@@ -131,9 +131,9 @@ enum MusicBrainzMetadata {
         let left = lhs.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
         let right = rhs.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
         if left == right { return true }
-
         let short = left.count <= right.count ? left : right
         let long = left.count <= right.count ? right : left
+        guard short.count >= 4 else { return false }
         guard short.count >= 2, long.hasPrefix(short) else { return false }
         guard let next = long.dropFirst(short.count).first else { return true }
         return next.isWhitespace || next == "&" || next == "," || next == "(" || next == "/"

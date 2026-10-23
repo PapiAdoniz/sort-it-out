@@ -10,7 +10,7 @@ The Xcode project is named FSO. The app you install is **Sort It Out**.
 - **Scan.** Reads artist, format, and quality, and leaves every file where it is. Preview a song before you move anything.
 - **Scan Details.** Browse what was scanned by source, by type, or as one list, with format, quality, and paths.
 - **File Inspector.** Sort the scanned files by quality and preview audio.
-- **Smart Place.** Set a watch folder (such as Downloads) and a library folder. Smart Place moves new audio into your library by the artist most of that download belongs to.
+- **Smart Place.** Set a watch folder (such as Downloads) and a library folder. Smart Place shows where the new songs will go and moves them only after you confirm.
 - **Folder styles.** Use one folder per artist, or artist and album folders. A featured credit stays with the main artist. A song tagged with both names follows the majority, and a song from the album stays with that album.
 - **MusicBrainz.** A match uses the album’s artist, then saves that release’s cover in the folder.
 - **Folder Stalker.** Keep folders you browse often, view them together or by artist, and choose the song title color.
@@ -24,7 +24,7 @@ Supported audio includes MP3, M4A, AAC, FLAC, WAV, AIFF, OGG, WMA, and ALAC.
 
 ## Install on a Mac
 
-1. Download [`Sort.It.Out-1.1.0.dmg`](https://github.com/PapiAdoniz/sort-it-out/releases/tag/v1.1.0).
+1. Download [`Sort.It.Out-1.2.0.dmg`](https://github.com/PapiAdoniz/sort-it-out/releases/tag/v1.2.0).
 2. Open the disk image.
 3. Drag **Sort It Out** onto **Applications**.
 4. Eject the disk image and open Sort It Out from Applications.
@@ -36,7 +36,7 @@ The first time you open it, macOS may say the app is from an unidentified develo
 1. Click **Add** and choose the music you want to look through.
 2. Click **Scan** to see artist, format, and quality, and to preview a song. Scanning does not move files.
 3. Open **Settings**, choose a watch folder and a library folder, and pick a folder style.
-4. Click **Smart Place** to move new downloads into the library.
+4. Click **Smart Place**, review where the songs will go, then confirm the move.
 
 ## Windows
 

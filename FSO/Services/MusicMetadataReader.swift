@@ -109,12 +109,16 @@ enum MusicMetadataReader {
         cacheLock.unlock()
 
         var result: String
-        if let taggedArtist = await readTaggedArtist(from: url) {
-            result = sanitizePrimaryArtistName(taggedArtist)
-        } else if let filenameArtist = artistFromFilename(url.deletingPathExtension().lastPathComponent) {
-            result = sanitizePrimaryArtistName(filenameArtist)
+        let taggedArtist = await readTaggedArtist(from: url).map(sanitizePrimaryArtistName)
+        let filenameArtist = artistFromFilename(url.deletingPathExtension().lastPathComponent)
+            .map(sanitizePrimaryArtistName)
+        if let taggedArtist, !isTrackNumber(taggedArtist) {
+            result = taggedArtist
+        } else if let filenameArtist, !isTrackNumber(filenameArtist) {
+            result = filenameArtist
         } else if let albumArtist = await readAlbumArtist(from: url) {
-            result = sanitizePrimaryArtistName(albumArtist)
+            let cleaned = sanitizePrimaryArtistName(albumArtist)
+            result = isTrackNumber(cleaned) ? "Unknown Artist" : cleaned
         } else {
             result = "Unknown Artist"
         }
@@ -227,14 +231,29 @@ enum MusicMetadataReader {
         let separators = [" - ", " – ", " — "]
         for separator in separators {
             let parts = filename.components(separatedBy: separator)
-            if parts.count >= 2 {
-                let artist = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
-                if !artist.isEmpty {
-                    return artist
-                }
+            guard parts.count >= 2 else { continue }
+            for candidate in parts.dropLast() {
+                let name = nameWithoutLeadingTrackNumber(candidate)
+                if name.isEmpty || isTrackNumber(name) { continue }
+                return name
             }
         }
         return nil
+    }
+
+    private static func nameWithoutLeadingTrackNumber(_ text: String) -> String {
+        var name = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let range = name.range(of: #"^\d{1,3}[\s.\-_]+"#, options: .regularExpression) {
+            name.removeSubrange(range)
+        }
+        return name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func isTrackNumber(_ text: String) -> Bool {
+        text.range(
+            of: #"^\d{1,3}([.\-_]\d{1,3})?$"#,
+            options: .regularExpression
+        ) != nil
     }
 
     private static func year(in text: String) -> String? {
@@ -314,10 +333,17 @@ enum MusicMetadataReader {
         guard !trimmed.isEmpty else { return "Unknown Artist" }
 
         let invalidCharacters = CharacterSet(charactersIn: "/:\\?%*|\"<>")
-        let sanitized = trimmed
+        var sanitized = trimmed
             .components(separatedBy: invalidCharacters)
             .joined(separator: "_")
             .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if sanitized.count > 240 {
+            sanitized = String(sanitized.prefix(240))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
 
         return sanitized.isEmpty ? "Unknown Artist" : sanitized
     }

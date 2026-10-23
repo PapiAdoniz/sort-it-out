@@ -250,7 +250,18 @@ struct ContentView: View {
         .sheet(isPresented: $viewModel.showHelpSheet) {
             HelpSheet()
         }
-        .sheet(isPresented: $viewModel.showSmartPlaceSelectionSheet) {
+        .sheet(isPresented: $viewModel.showSmartPlaceReview, onDismiss: {
+            viewModel.cancelSmartPlaceReviewIfNeeded()
+        }) {
+            SmartPlaceReviewSheet(
+                lines: viewModel.smartPlaceReviewLines,
+                onMove: { viewModel.confirmSmartPlaceReview() },
+                onCancel: { viewModel.showSmartPlaceReview = false }
+            )
+        }
+        .sheet(isPresented: $viewModel.showSmartPlaceSelectionSheet, onDismiss: {
+            viewModel.cancelSmartPlaceSelectionIfNeeded()
+        }) {
             SmartPlaceSelectionSheet(
                 artistChoices: viewModel.smartPlaceAmbiguities.map { ambiguity in
                     SmartPlaceSelectionSheet.ArtistChoice(

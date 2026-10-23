@@ -162,11 +162,12 @@ enum SmartPlaceService {
             let taggedArtist = await MusicMetadataReader.artist(from: fileURL)
             let title = await MusicMetadataReader.title(from: fileURL)
             let taggedAlbum = await MusicMetadataReader.album(from: fileURL)
-            if let identified = await MusicBrainzMetadata.match(
+            if taggedArtist != "Unknown Artist",
+               let identified = await MusicBrainzMetadata.match(
                 artist: taggedArtist,
                 title: title,
                 album: taggedAlbum
-            ) {
+               ), artistsAreSame(taggedArtist, identified.artist) {
                 detectedArtistsByFile[fileURL] = identified.artist
                 albumByFile[fileURL] = MusicMetadataReader.cleanAlbumName(identified.album)
                 releaseByFile[fileURL] = identified
@@ -197,6 +198,7 @@ enum SmartPlaceService {
         }
 
         applyFolderReleaseConsensus(
+            root: watchFolder.standardizedFileURL,
             filesBySourceFolder: Dictionary(grouping: watchFiles) {
                 $0.deletingLastPathComponent().standardizedFileURL
             },
@@ -213,42 +215,33 @@ enum SmartPlaceService {
             total: lookupTotal
         ))
 
+        let root = watchFolder.standardizedFileURL
         let filesBySourceFolder = Dictionary(grouping: watchFiles) { fileURL in
             fileURL.deletingLastPathComponent().standardizedFileURL
         }
         let majorityArtistsBySourceFolder = majorityArtistsByFolder(
             filesBySourceFolder,
-            detectedArtistsByFile: detectedArtistsByFile
+            detectedArtistsByFile: detectedArtistsByFile,
+            root: root
         )
         let albumArtistByFile = majorityArtistByAlbum(
-            files: watchFiles,
+            filesBySourceFolder: filesBySourceFolder,
             detectedArtistsByFile: detectedArtistsByFile,
-            albumByFile: albumByFile
+            albumByFile: albumByFile,
+            root: root
         )
-
-        var albumCounts: [String: Int] = [:]
-        for fileURL in watchFiles {
-            guard let album = albumByFile[fileURL], album != "Unknown Artist" else { continue }
-            albumCounts[folded(album), default: 0] += 1
-        }
 
         var artistToFiles: [String: [URL]] = [:]
         for fileURL in watchFiles {
             let sourceFolder = fileURL.deletingLastPathComponent().standardizedFileURL
-            let folderArtist = majorityArtistsBySourceFolder[sourceFolder]
-            let albumArtist = albumArtistByFile[fileURL]
-            let folderCount = filesBySourceFolder[sourceFolder]?.count ?? 1
-            let albumCount = albumByFile[fileURL].map { albumCounts[folded($0), default: 0] } ?? 0
-            // A few featured songs follow the artist the album or download is mostly by.
-            // An album split across folders follows that album when it is the larger group.
+            let ownArtist = detectedArtistsByFile[fileURL] ?? "Unknown Artist"
+            let groupedArtist = albumArtistByFile[fileURL] ?? majorityArtistsBySourceFolder[sourceFolder]
+            // A featured credit can follow the album artist. A different artist keeps their own folder.
             let artist: String
-            if let albumArtist, albumCount > folderCount {
-                artist = albumArtist
+            if let groupedArtist, ownArtist == "Unknown Artist" || artistsAreSame(ownArtist, groupedArtist) {
+                artist = groupedArtist
             } else {
-                artist = folderArtist
-                    ?? albumArtist
-                    ?? detectedArtistsByFile[fileURL]
-                    ?? "Unknown Artist"
+                artist = ownArtist
             }
 
             if artistToFiles[artist] == nil {
@@ -280,6 +273,7 @@ enum SmartPlaceService {
             } else if matchingFolders.isEmpty {
                 // No matching folder - create a new artist folder in the destination.
                 let artistFolderURL = artistFolder(named: artist, in: destinationFolder)
+                let planCountBeforeArtist = plans.count
                 for fileURL in files {
                     let targetFolder = await resolvedDestinationFolder(
                         forArtistFolder: artistFolderURL,
@@ -309,6 +303,8 @@ enum SmartPlaceService {
                         releaseGroupID: releaseByFile[fileURL]?.releaseGroupID
                     )
                     plans.append(plan)
+                }
+                if plans.count > planCountBeforeArtist {
                     newArtistCount += 1
                 }
                 print("Smart Place: New artist '\(artist)' -> creating new folder at \(artistFolderURL.path)")
@@ -369,19 +365,12 @@ enum SmartPlaceService {
 
     static func execute(
         _ result: PlanResult,
-        replacing: Set<URL> = [],
         onProgress: (@Sendable (Progress) -> Void)? = nil
     ) async throws -> ExecutionResult {
         var movedCount = 0
         var errors: [String] = []
-        let replacingPaths = Set(replacing.map { $0.standardizedFileURL.path })
 
-        // Create all necessary artist folders
-        let artistFolders = Set(result.plans.map { $0.destinationURL.deletingLastPathComponent() })
-        for folder in artistFolders {
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        }
-
+        // Create the folder only for a song that is about to move.
         let moveTotal = result.plans.count
         for (index, plan) in result.plans.enumerated() {
             let fileName = plan.sourceURL.lastPathComponent
@@ -398,33 +387,32 @@ enum SmartPlaceService {
             }
 
             do {
-                if FileManager.default.fileExists(atPath: plan.destinationURL.path) {
-                    if replacingPaths.contains(plan.sourceURL.standardizedFileURL.path) {
-                        try replaceExistingFile(at: plan.sourceURL, with: plan.destinationURL)
-                        movedCount += 1
-                        onProgress?(Progress(
-                            title: "Moving songs",
-                            detail: fileName,
-                            note: "Placed in \(plan.destinationURL.deletingLastPathComponent().lastPathComponent)",
-                            completed: index + 1,
-                            total: max(moveTotal, 1),
-                            log: true
-                        ))
-                    } else {
-                        errors.append("Skipped (already exists): \(plan.destinationURL.lastPathComponent)")
-                        onProgress?(Progress(
-                            title: "Moving songs",
-                            detail: fileName,
-                            note: "Already there, so this one stays put.",
-                            completed: index + 1,
-                            total: max(moveTotal, 1),
-                            log: true
-                        ))
-                    }
+                guard FileManager.default.fileExists(atPath: plan.sourceURL.path) else {
+                    errors.append("Skipped (no longer in the watch folder): \(fileName)")
                     continue
                 }
 
-                try FileManager.default.moveItem(at: plan.sourceURL, to: plan.destinationURL)
+                if FileManager.default.fileExists(atPath: plan.destinationURL.path) {
+                    errors.append("Skipped (already exists): \(plan.destinationURL.lastPathComponent)")
+                    onProgress?(Progress(
+                        title: "Moving songs",
+                        detail: fileName,
+                        note: "A different song already uses this name, so this one stays put.",
+                        completed: index + 1,
+                        total: max(moveTotal, 1),
+                        log: true
+                    ))
+                    continue
+                }
+
+                let folder = plan.destinationURL.deletingLastPathComponent()
+                let createdFolders = try createdFoldersForMove(into: folder)
+                do {
+                    try FileManager.default.moveItem(at: plan.sourceURL, to: plan.destinationURL)
+                } catch {
+                    removeEmptyFolders(createdFolders)
+                    throw error
+                }
                 movedCount += 1
                 onProgress?(Progress(
                     title: "Moving songs",
@@ -443,6 +431,10 @@ enum SmartPlaceService {
             $0.destinationURL.deletingLastPathComponent().standardizedFileURL
         }
         for (folder, folderPlans) in plansByFolder {
+            let landed = folderPlans.contains {
+                FileManager.default.fileExists(atPath: $0.destinationURL.path)
+            }
+            guard landed else { continue }
             let releaseIDs = Set(folderPlans.compactMap(\.releaseID))
             guard releaseIDs.count == 1, let releaseID = releaseIDs.first else { continue }
             let releaseGroupID = folderPlans.compactMap(\.releaseGroupID).first
@@ -477,17 +469,36 @@ enum SmartPlaceService {
         )
     }
 
-    /// Moves the new file into place, and puts the old library file back if that move fails.
-    private static func replaceExistingFile(at source: URL, with destination: URL) throws {
-        let backup = destination.deletingLastPathComponent()
-            .appendingPathComponent(".sortitout-\(UUID().uuidString)-\(destination.lastPathComponent)")
-        try FileManager.default.moveItem(at: destination, to: backup)
-        do {
-            try FileManager.default.moveItem(at: source, to: destination)
-            try? FileManager.default.removeItem(at: backup)
-        } catch {
-            try? FileManager.default.moveItem(at: backup, to: destination)
-            throw error
+    /// Folders that did not exist before this move, deepest first, so a failed move can remove them.
+    private static func createdFoldersForMove(into folder: URL) throws -> [URL] {
+        var created: [URL] = []
+        var cursor = folder.standardizedFileURL
+        var missing: [URL] = []
+        while cursor.path != "/" && !FileManager.default.fileExists(atPath: cursor.path) {
+            missing.append(cursor)
+            cursor = cursor.deletingLastPathComponent().standardizedFileURL
+        }
+
+        for directory in missing.reversed() {
+            do {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+                created.insert(directory, at: 0)
+            } catch {
+                removeEmptyFolders(created)
+                throw error
+            }
+        }
+        return created
+    }
+
+    private static func removeEmptyFolders(_ folders: [URL]) {
+        for folder in folders {
+            guard let contents = try? FileManager.default.contentsOfDirectory(
+                at: folder,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            ), contents.isEmpty else { continue }
+            try? FileManager.default.removeItem(at: folder)
         }
     }
 
@@ -521,15 +532,16 @@ enum SmartPlaceService {
         }
     }
 
-    /// A download folder's majority artist, so a feature or a shared credit stays with that artist.
-    /// This includes songs sitting directly in the watch folder.
+    /// A download folder's majority artist, so a feature stays with that artist.
+    /// Songs dropped directly in the watch folder are left on their own tags.
     private static func majorityArtistsByFolder(
         _ filesBySourceFolder: [URL: [URL]],
-        detectedArtistsByFile: [URL: String]
+        detectedArtistsByFile: [URL: String],
+        root: URL
     ) -> [URL: String] {
         var result: [URL: String] = [:]
 
-        for (folder, files) in filesBySourceFolder where files.count > 1 {
+        for (folder, files) in filesBySourceFolder where folder != root && files.count > 1 {
             let votes = votedArtistNames(for: files, detectedArtistsByFile: detectedArtistsByFile)
             if let majority = majorityName(in: votes, total: files.count) {
                 result[folder] = majority
@@ -539,36 +551,42 @@ enum SmartPlaceService {
         return result
     }
 
-    /// Tracks that share an album use that album's majority artist, even when a few songs are tagged with someone else.
+    /// Tracks that share an album inside one download folder use that album's majority artist.
     private static func majorityArtistByAlbum(
-        files: [URL],
+        filesBySourceFolder: [URL: [URL]],
         detectedArtistsByFile: [URL: String],
-        albumByFile: [URL: String]
+        albumByFile: [URL: String],
+        root: URL
     ) -> [URL: String] {
         var result: [URL: String] = [:]
-        let groups = Dictionary(grouping: files) { file -> String in
-            guard let album = albumByFile[file], album != "Unknown Artist" else { return "" }
-            return folded(album)
-        }
-        for (key, group) in groups {
-            guard !key.isEmpty, group.count > 1 else { continue }
-            let votes = votedArtistNames(for: group, detectedArtistsByFile: detectedArtistsByFile)
-            guard let artist = majorityName(in: votes, total: group.count) else { continue }
-            for file in group {
-                result[file] = artist
+
+        for (folder, files) in filesBySourceFolder where folder != root {
+            let groups = Dictionary(grouping: files) { file -> String in
+                guard let album = albumByFile[file], album != "Unknown Artist" else { return "" }
+                return folded(album)
+            }
+            for (key, group) in groups {
+                guard !key.isEmpty, group.count > 1 else { continue }
+                let votes = votedArtistNames(for: group, detectedArtistsByFile: detectedArtistsByFile)
+                guard let artist = majorityName(in: votes, total: group.count) else { continue }
+                for file in group {
+                    result[file] = artist
+                }
             }
         }
+
         return result
     }
 
     /// Songs in one download folder follow the release most of that folder already matched.
     private static func applyFolderReleaseConsensus(
+        root: URL,
         filesBySourceFolder: [URL: [URL]],
         detectedArtistsByFile: inout [URL: String],
         albumByFile: inout [URL: String],
         releaseByFile: inout [URL: MusicBrainzMetadata.Match]
     ) {
-        for (_, files) in filesBySourceFolder where files.count > 1 {
+        for (folder, files) in filesBySourceFolder where folder != root && files.count > 1 {
             let matched = files.compactMap { file -> MusicBrainzMetadata.Match? in
                 releaseByFile[file]
             }
@@ -582,6 +600,15 @@ enum SmartPlaceService {
             }
 
             for file in files where releaseByFile[file] == nil {
+                let ownArtist = detectedArtistsByFile[file] ?? "Unknown Artist"
+                guard ownArtist == "Unknown Artist" || artistsAreSame(ownArtist, template.artist) else { continue }
+                if ownArtist == "Unknown Artist" {
+                    let ownAlbum = albumByFile[file]
+                    if let ownAlbum, ownAlbum != "Unknown Artist",
+                       !MusicMetadataReader.folderNamesMatch(ownAlbum, template.album) {
+                        continue
+                    }
+                }
                 detectedArtistsByFile[file] = template.artist
                 albumByFile[file] = MusicMetadataReader.cleanAlbumName(template.album)
                 releaseByFile[file] = template
@@ -669,6 +696,19 @@ enum SmartPlaceService {
         }) else { return nil }
         let minimum = max(2, Int(ceil(Double(total) / 2.0)))
         return best.count >= minimum ? best.name : nil
+    }
+
+    /// Short names have to match the whole name. A featured credit of the same artist still matches.
+    private static func artistsAreSame(_ lhs: String, _ rhs: String) -> Bool {
+        if MusicMetadataReader.folderNamesMatch(lhs, rhs) { return true }
+        let left = MusicMetadataReader.leadingArtistName(lhs)
+        let right = MusicMetadataReader.leadingArtistName(rhs)
+        guard min(left.count, right.count) >= 4 else {
+            return MusicMetadataReader.folderNamesMatch(left, right)
+        }
+        return MusicMetadataReader.folderNamesMatch(left, right)
+            || MusicMetadataReader.folderNamesMatch(left, rhs)
+            || MusicMetadataReader.folderNamesMatch(lhs, right)
     }
 
     private static func folded(_ name: String) -> String {
@@ -764,7 +804,17 @@ enum SmartPlaceService {
         return destination
     }
 
-    /// A song already at this path stays put. A different file already there is a duplicate.
+    private static func sameFileSize(_ lhs: URL, _ rhs: URL) -> Bool {
+        let keys: Set<URLResourceKey> = [.fileSizeKey]
+        guard let left = try? lhs.resourceValues(forKeys: keys).fileSize,
+              let right = try? rhs.resourceValues(forKeys: keys).fileSize,
+              left > 0 else {
+            return false
+        }
+        return left == right
+    }
+
+    /// A song already at this path stays put. A same-sized file with the same name stays in the library. A different song gets a new name.
     static func placeFile(
         _ fileURL: URL,
         in folder: URL,
@@ -779,7 +829,12 @@ enum SmartPlaceService {
         }
 
         if FileManager.default.fileExists(atPath: proposed.path) {
-            return (proposed, true)
+            if sameFileSize(proposed, fileURL) {
+                return (fileURL.standardizedFileURL, false)
+            }
+            let destination = uniqueDestinationURL(in: folder, filename: fileURL.lastPathComponent, reserved: claimed)
+            claimed.insert(destination.standardizedFileURL.path)
+            return (destination, false)
         }
 
         if claimed.contains(proposedKey) {

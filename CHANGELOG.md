@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.2.0 — October 23, 2026
+
+Smart Place shows the destination and waits before it moves anything.
+
+- Review every folder and move nothing until you confirm
+- Leave a song with no artist tag unknown instead of naming it from a track number or a title-only lookup
+- Keep a featured track with the album when the rest of that download belongs to one artist
+- File songs dropped directly in the watch folder from their own tags
+- Leave a file that is already in the library where it is, and give a different song with the same name a new filename
+- Create a folder only when a song is about to move there, and remove it if that move fails
+
 ## 1.1.0 — October 23, 2026
 
 Smart Place improvements for albums with featured artists and clearer MusicBrainz handling.

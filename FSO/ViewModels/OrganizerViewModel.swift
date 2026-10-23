@@ -63,6 +63,11 @@ final class OrganizerViewModel {
     var showSettingsSheet = false
     var showHelpSheet = false
     var showSmartPlaceSelectionSheet = false
+    var showSmartPlaceReview = false
+    var smartPlaceReviewLines: [String] = []
+    private var smartPlaceReadyResult: SmartPlaceService.PlanResult?
+    private var smartPlaceReviewConfirmed = false
+    private var smartPlaceSelectionAccepted = false
     var errorMessage = ""
     var completionMessage: String?
     var smartPlaceAmbiguities: [SmartPlaceService.ArtistAmbiguity] = []
@@ -435,6 +440,17 @@ final class OrganizerViewModel {
             return
         }
 
+        if watch.standardizedFileURL == destination.standardizedFileURL {
+            errorMessage = "The watch folder and library folder are the same. Pick a downloads folder to watch and a separate library folder in Settings."
+            showError = true
+            return
+        }
+
+        if showSmartPlaceReview || showSmartPlaceSelectionSheet {
+            statusMessage = "Finish the Smart Place review that's already open."
+            return
+        }
+
         // Make sure the destination is reachable; artist folders are created as needed.
         guard FileManager.default.fileExists(atPath: destination.path) else {
             errorMessage = "Cannot access destination folder."
@@ -502,6 +518,7 @@ final class OrganizerViewModel {
                 }
                 smartPlaceArtistSongTitles = artistSongTitles
 
+                smartPlaceSelectionAccepted = false
                 showSmartPlaceSelectionSheet = true
                 isOrganizing = false
                 statusMessage = "Please select where to place each artist's music"
@@ -521,39 +538,21 @@ final class OrganizerViewModel {
                 }
                 smartPlaceArtistSongTitles = artistSongTitles
 
+                smartPlaceSelectionAccepted = false
                 showSmartPlaceSelectionSheet = true
                 isOrganizing = false
                 statusMessage = "Please choose how to handle duplicate files"
                 return
             }
 
-            // No ambiguities, proceed with execution
-            statusMessage = "Smart Place organizing into \(destination.lastPathComponent)…"
-            let execution = try await Task.detached(priority: .userInitiated) {
-                try await SmartPlaceService.execute(result, onProgress: report)
-            }.value
-
-            artistGroups = []
-            scannedFiles = []
-            scannedSourceGroups = []
-            scanFormatSummary = nil
-            refreshAddedFolderContents()
-
-            let summary = smartPlaceSummaryMessage(for: execution)
-            statusMessage = summary
-            completionMessage = summary
-            clearCompletionMessage(after: 6)
-
-            // Show folder completion menu if new folders were created
-            if execution.newArtistCount > 0 {
-                completedFolderURL = destination
-                showFolderCompletionMenu = true
-            }
-
-            if !execution.errors.isEmpty {
-                errorMessage = execution.errors.joined(separator: "\n")
-                showError = true
-            }
+            // No ambiguities. Show where the songs will go before moving them.
+            smartPlaceReadyResult = result
+            smartPlaceReviewLines = Self.reviewLines(for: result.plans, library: destination)
+            smartPlaceReviewConfirmed = false
+            showSmartPlaceReview = true
+            isOrganizing = false
+            statusMessage = "Review where these songs will go."
+            return
         } catch {
             errorMessage = "Can't perform this action. \(error.localizedDescription)"
             showError = true
@@ -568,24 +567,21 @@ final class OrganizerViewModel {
             return
         }
 
-        isOrganizing = true
+        smartPlaceSelectionAccepted = true
+        let pendingPlans = smartPlacePendingPlans
+        let ambiguities = smartPlaceAmbiguities
+        smartPlaceAmbiguities = []
+        smartPlacePendingPlans = []
+        smartPlaceDuplicates = []
+        smartPlaceArtistSongTitles = [:]
         showSmartPlaceSelectionSheet = false
-        loadingActivity = LoadingActivity(
-            title: "Moving songs",
-            detail: "Using the folders you picked",
-            note: "Then the album covers get saved.",
-            completed: 0,
-            total: 0,
-            recent: []
-        )
-        statusMessage = loadingActivity.title
+        statusMessage = "Checking the folders you picked."
         let useAlbumFolders = smartPlaceUsesAlbumFolders
-        let report = loadingReporter()
 
         Task {
             do {
                 // Create plans for the selected folders
-                var allPlans = smartPlacePendingPlans
+                var allPlans = pendingPlans
 
                 // Filter out duplicates that were marked to skip
                 allPlans = allPlans.filter { plan in
@@ -595,14 +591,9 @@ final class OrganizerViewModel {
                     return true
                 }
 
-                // For duplicates marked to replace, keep the library file until the new one is in place.
-                let replacing = Set(duplicateChoices.compactMap { source, shouldReplace in
-                    shouldReplace ? source : nil
-                })
-
                 var claimedDestinations = Set(allPlans.map { $0.destinationURL.standardizedFileURL.path })
 
-                for ambiguity in smartPlaceAmbiguities {
+                for ambiguity in ambiguities {
                     let artist = ambiguity.artist
                     let artistFolder = selections[artist] ?? SmartPlaceService.artistFolder(named: artist, in: destination)
 
@@ -630,40 +621,37 @@ final class OrganizerViewModel {
                     }
                 }
 
-                // Execute all plans
+                let movable = allPlans.filter {
+                    $0.sourceURL.standardizedFileURL != $0.destinationURL.standardizedFileURL
+                }
+                isOrganizing = false
+
+                guard !movable.isEmpty else {
+                    errorMessage = "Nothing to place. The watch folder has no new music."
+                    showError = true
+                    statusMessage = "Nothing to place."
+                    return
+                }
+
+                let folderCounts = Self.placementCounts(for: movable, library: destination)
                 let result = SmartPlaceService.PlanResult(
-                    plans: allPlans,
-                    matchedCount: 0,
-                    newArtistCount: 0,
+                    plans: movable,
+                    matchedCount: folderCounts.songsInExistingFolders,
+                    newArtistCount: folderCounts.newArtistFolders,
                     needsArtistCount: 0,
                     ambiguities: [],
                     duplicates: []
                 )
-
-                let execution = try await Task.detached(priority: .userInitiated) {
-                    try await SmartPlaceService.execute(result, replacing: replacing, onProgress: report)
-                }.value
-
-                isOrganizing = false
-                smartPlaceAmbiguities = []
-                smartPlacePendingPlans = []
-                smartPlaceDuplicates = []
-
-                artistGroups = []
-                scannedFiles = []
-                scannedSourceGroups = []
-                scanFormatSummary = nil
-                refreshAddedFolderContents()
-
-                let summary = smartPlaceSummaryMessage(for: execution)
-                statusMessage = summary
-                completionMessage = summary
-                clearCompletionMessage(after: 6)
-
-                if !execution.errors.isEmpty {
-                    errorMessage = execution.errors.joined(separator: "\n")
-                    showError = true
+                smartPlaceReadyResult = result
+                var lines = Self.reviewLines(for: movable, library: destination)
+                let alreadyThere = allPlans.count - movable.count
+                if alreadyThere > 0 {
+                    lines.append("\(alreadyThere) song\(alreadyThere == 1 ? "" : "s") already in the library will stay put.")
                 }
+                smartPlaceReviewLines = lines
+                smartPlaceReviewConfirmed = false
+                showSmartPlaceReview = true
+                statusMessage = "Review where these songs will go."
             } catch {
                 isOrganizing = false
                 smartPlaceAmbiguities = []
@@ -676,7 +664,121 @@ final class OrganizerViewModel {
         }
     }
 
-    func cancelSmartPlaceSelection() {
+    func confirmSmartPlaceReview() {
+        guard let result = smartPlaceReadyResult else { return }
+        smartPlaceReviewConfirmed = true
+        showSmartPlaceReview = false
+        smartPlaceReadyResult = nil
+        smartPlaceReviewLines = []
+        Task {
+            await executePlannedSmartPlace(result)
+        }
+    }
+
+    func cancelSmartPlaceReviewIfNeeded() {
+        if smartPlaceReviewConfirmed {
+            smartPlaceReviewConfirmed = false
+            return
+        }
+        smartPlaceReadyResult = nil
+        smartPlaceReviewLines = []
+        statusMessage = "Smart Place cancelled"
+    }
+
+    private func executePlannedSmartPlace(_ result: SmartPlaceService.PlanResult) async {
+        guard let destination = smartDestinationFolder else { return }
+        isOrganizing = true
+        loadingActivity = LoadingActivity(
+            title: "Moving songs",
+            detail: destination.lastPathComponent,
+            note: "Putting each song in the folder you reviewed.",
+            completed: 0,
+            total: result.plans.count,
+            recent: []
+        )
+        statusMessage = "Smart Place organizing into \(destination.lastPathComponent)…"
+        let report = loadingReporter()
+        do {
+            let execution = try await Task.detached(priority: .userInitiated) {
+                try await SmartPlaceService.execute(result, onProgress: report)
+            }.value
+            artistGroups = []
+            scannedFiles = []
+            scannedSourceGroups = []
+            scanFormatSummary = nil
+            refreshAddedFolderContents()
+            let summary = smartPlaceSummaryMessage(for: execution)
+            statusMessage = summary
+            completionMessage = summary
+            clearCompletionMessage(after: 6)
+            if execution.newArtistCount > 0 {
+                completedFolderURL = destination
+                showFolderCompletionMenu = true
+            }
+            if !execution.errors.isEmpty {
+                errorMessage = execution.errors.joined(separator: "\n")
+                showError = true
+            }
+        } catch {
+            errorMessage = "Can't perform this action. \(error.localizedDescription)"
+            showError = true
+            statusMessage = "Smart Place failed."
+        }
+        isOrganizing = false
+    }
+
+    private static func placementCounts(for plans: [MusicFilePlan], library: URL) -> (songsInExistingFolders: Int, newArtistFolders: Int) {
+        var songsInExistingFolders = 0
+        var newFolders: Set<String> = []
+        for plan in plans {
+            let artistFolder = artistFolder(for: plan.destinationURL, library: library)
+            if FileManager.default.fileExists(atPath: artistFolder.path) {
+                songsInExistingFolders += 1
+            } else {
+                newFolders.insert(artistFolder.standardizedFileURL.path)
+            }
+        }
+        return (songsInExistingFolders, newFolders.count)
+    }
+
+    private static func artistFolder(for destination: URL, library: URL) -> URL {
+        let libraryURL = library.standardizedFileURL
+        var current = destination.deletingLastPathComponent().standardizedFileURL
+        while current.deletingLastPathComponent().standardizedFileURL != libraryURL && current.path != "/" {
+            current = current.deletingLastPathComponent().standardizedFileURL
+        }
+        return current
+    }
+
+    private static func reviewLines(for plans: [MusicFilePlan], library: URL) -> [String] {
+        let libraryPath = library.standardizedFileURL.path
+        var counts: [String: Int] = [:]
+        var order: [String] = []
+        for plan in plans {
+            var folder = plan.destinationURL.deletingLastPathComponent().standardizedFileURL
+            var parts: [String] = []
+            while folder.path != libraryPath && folder.path != "/" {
+                parts.insert(folder.lastPathComponent, at: 0)
+                folder = folder.deletingLastPathComponent().standardizedFileURL
+                if parts.count == 2 { break }
+            }
+            let label = parts.isEmpty ? library.lastPathComponent : parts.joined(separator: " / ")
+            if counts[label] == nil {
+                order.append(label)
+            }
+            counts[label, default: 0] += 1
+        }
+        return order.map { label in
+            let count = counts[label] ?? 0
+            return "\(label) — \(count) song\(count == 1 ? "" : "s")"
+        }
+    }
+
+    func cancelSmartPlaceSelectionIfNeeded() {
+        if smartPlaceSelectionAccepted {
+            smartPlaceSelectionAccepted = false
+            return
+        }
         showSmartPlaceSelectionSheet = false
         smartPlaceAmbiguities = []
         smartPlacePendingPlans = []
@@ -687,14 +789,15 @@ final class OrganizerViewModel {
 
     private func smartPlaceSummaryMessage(for execution: SmartPlaceService.ExecutionResult) -> String {
         let total = execution.movedCount
-        let totalText = "Moved \(total) file\(total == 1 ? "" : "s")."
+        let libraryName = smartDestinationFolder?.lastPathComponent ?? "your library"
+        let totalText = "Moved \(total) file\(total == 1 ? "" : "s") into \(libraryName)."
 
         var parts: [String] = []
         if execution.matchedCount > 0 {
-            parts.append("\(execution.matchedCount) into existing artist folder\(execution.matchedCount == 1 ? "" : "s")")
+            parts.append("\(execution.matchedCount) song\(execution.matchedCount == 1 ? "" : "s") into existing artist folders")
         }
         if execution.newArtistCount > 0 {
-            parts.append("\(execution.newArtistCount) into new artist folder\(execution.newArtistCount == 1 ? "" : "s")")
+            parts.append("\(execution.newArtistCount) new artist folder\(execution.newArtistCount == 1 ? "" : "s")")
         }
         if execution.needsArtistCount > 0 {
             parts.append("\(execution.needsArtistCount) sent to _Needs Artist")
