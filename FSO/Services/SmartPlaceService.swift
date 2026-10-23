@@ -183,16 +183,27 @@ enum SmartPlaceService {
                 if let taggedAlbum, taggedAlbum != "Unknown Artist" {
                     albumByFile[fileURL] = MusicMetadataReader.cleanAlbumName(taggedAlbum)
                 }
+                let artistLabel = taggedArtist == "Unknown Artist" ? fileName : taggedArtist
+                let note = albumByFile[fileURL].map { "\(artistLabel) · \($0)" } ?? artistLabel
                 onProgress?(Progress(
                     title: "Smart Place",
                     detail: fileName,
-                    note: "No confident match. Keeping the tags already on the file.",
+                    note: note,
                     completed: index + 1,
                     total: lookupTotal,
-                    log: true
+                    log: false
                 ))
             }
         }
+
+        applyFolderReleaseConsensus(
+            filesBySourceFolder: Dictionary(grouping: watchFiles) {
+                $0.deletingLastPathComponent().standardizedFileURL
+            },
+            detectedArtistsByFile: &detectedArtistsByFile,
+            albumByFile: &albumByFile,
+            releaseByFile: &releaseByFile
+        )
 
         onProgress?(Progress(
             title: "Choosing folders",
@@ -202,29 +213,43 @@ enum SmartPlaceService {
             total: lookupTotal
         ))
 
-        let root = watchFolder.standardizedFileURL
         let filesBySourceFolder = Dictionary(grouping: watchFiles) { fileURL in
             fileURL.deletingLastPathComponent().standardizedFileURL
         }
         let majorityArtistsBySourceFolder = majorityArtistsByFolder(
             filesBySourceFolder,
-            detectedArtistsByFile: detectedArtistsByFile,
-            root: root
+            detectedArtistsByFile: detectedArtistsByFile
         )
         let albumArtistByFile = majorityArtistByAlbum(
-            filesBySourceFolder: filesBySourceFolder,
+            files: watchFiles,
             detectedArtistsByFile: detectedArtistsByFile,
-            albumByFile: albumByFile,
-            folderArtists: majorityArtistsBySourceFolder
+            albumByFile: albumByFile
         )
+
+        var albumCounts: [String: Int] = [:]
+        for fileURL in watchFiles {
+            guard let album = albumByFile[fileURL], album != "Unknown Artist" else { continue }
+            albumCounts[folded(album), default: 0] += 1
+        }
 
         var artistToFiles: [String: [URL]] = [:]
         for fileURL in watchFiles {
             let sourceFolder = fileURL.deletingLastPathComponent().standardizedFileURL
-            let artist = majorityArtistsBySourceFolder[sourceFolder]
-                ?? albumArtistByFile[fileURL]
-                ?? detectedArtistsByFile[fileURL]
-                ?? "Unknown Artist"
+            let folderArtist = majorityArtistsBySourceFolder[sourceFolder]
+            let albumArtist = albumArtistByFile[fileURL]
+            let folderCount = filesBySourceFolder[sourceFolder]?.count ?? 1
+            let albumCount = albumByFile[fileURL].map { albumCounts[folded($0), default: 0] } ?? 0
+            // A few featured songs follow the artist the album or download is mostly by.
+            // An album split across folders follows that album when it is the larger group.
+            let artist: String
+            if let albumArtist, albumCount > folderCount {
+                artist = albumArtist
+            } else {
+                artist = folderArtist
+                    ?? albumArtist
+                    ?? detectedArtistsByFile[fileURL]
+                    ?? "Unknown Artist"
+            }
 
             if artistToFiles[artist] == nil {
                 artistToFiles[artist] = []
@@ -497,15 +522,14 @@ enum SmartPlaceService {
     }
 
     /// A download folder's majority artist, so a feature or a shared credit stays with that artist.
+    /// This includes songs sitting directly in the watch folder.
     private static func majorityArtistsByFolder(
         _ filesBySourceFolder: [URL: [URL]],
-        detectedArtistsByFile: [URL: String],
-        root: URL
+        detectedArtistsByFile: [URL: String]
     ) -> [URL: String] {
         var result: [URL: String] = [:]
 
-        for (folder, files) in filesBySourceFolder {
-            guard folder != root, files.count > 1 else { continue }
+        for (folder, files) in filesBySourceFolder where files.count > 1 {
             let votes = votedArtistNames(for: files, detectedArtistsByFile: detectedArtistsByFile)
             if let majority = majorityName(in: votes, total: files.count) {
                 result[folder] = majority
@@ -515,32 +539,54 @@ enum SmartPlaceService {
         return result
     }
 
-    /// Tracks that share an album use that album's majority artist, so a feature does not open another folder.
+    /// Tracks that share an album use that album's majority artist, even when a few songs are tagged with someone else.
     private static func majorityArtistByAlbum(
-        filesBySourceFolder: [URL: [URL]],
+        files: [URL],
         detectedArtistsByFile: [URL: String],
-        albumByFile: [URL: String],
-        folderArtists: [URL: String]
+        albumByFile: [URL: String]
     ) -> [URL: String] {
         var result: [URL: String] = [:]
-
-        for (folder, files) in filesBySourceFolder {
-            guard folderArtists[folder] == nil else { continue }
-            let groups = Dictionary(grouping: files) { file -> String in
-                guard let album = albumByFile[file], album != "Unknown Artist" else { return "" }
-                return folded(album)
-            }
-            for (key, group) in groups {
-                guard !key.isEmpty, group.count > 1 else { continue }
-                let votes = votedArtistNames(for: group, detectedArtistsByFile: detectedArtistsByFile)
-                guard let artist = majorityName(in: votes, total: group.count) else { continue }
-                for file in group {
-                    result[file] = artist
-                }
+        let groups = Dictionary(grouping: files) { file -> String in
+            guard let album = albumByFile[file], album != "Unknown Artist" else { return "" }
+            return folded(album)
+        }
+        for (key, group) in groups {
+            guard !key.isEmpty, group.count > 1 else { continue }
+            let votes = votedArtistNames(for: group, detectedArtistsByFile: detectedArtistsByFile)
+            guard let artist = majorityName(in: votes, total: group.count) else { continue }
+            for file in group {
+                result[file] = artist
             }
         }
-
         return result
+    }
+
+    /// Songs in one download folder follow the release most of that folder already matched.
+    private static func applyFolderReleaseConsensus(
+        filesBySourceFolder: [URL: [URL]],
+        detectedArtistsByFile: inout [URL: String],
+        albumByFile: inout [URL: String],
+        releaseByFile: inout [URL: MusicBrainzMetadata.Match]
+    ) {
+        for (_, files) in filesBySourceFolder where files.count > 1 {
+            let matched = files.compactMap { file -> MusicBrainzMetadata.Match? in
+                releaseByFile[file]
+            }
+            guard matched.count >= 2 else { continue }
+            let artistVotes = matched.map(\.artist)
+            guard let majorityArtist = majorityName(in: artistVotes, total: matched.count) else { continue }
+            let sameArtist = matched.filter { MusicMetadataReader.folderNamesMatch($0.artist, majorityArtist) }
+            guard let majorityAlbum = sharedAlbumName(in: sameArtist.map(\.album)),
+                  let template = sameArtist.first(where: { MusicMetadataReader.folderNamesMatch($0.album, majorityAlbum) }) else {
+                continue
+            }
+
+            for file in files where releaseByFile[file] == nil {
+                detectedArtistsByFile[file] = template.artist
+                albumByFile[file] = MusicMetadataReader.cleanAlbumName(template.album)
+                releaseByFile[file] = template
+            }
+        }
     }
 
     /// Songs in one artist group share that group's album when a song has no album name, or its album name is the artist.

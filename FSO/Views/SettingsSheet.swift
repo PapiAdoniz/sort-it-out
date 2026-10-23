@@ -113,7 +113,7 @@ struct SettingsSheet: View {
             EmptyView()
         } content: {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Smart Place puts a download in the folder of the artist most of those songs belong to. A featured credit stays with that artist. A song tagged with both names follows the majority, and a song from the album stays in the album.")
+                Text("Smart Place puts a download in the folder of the artist the album belongs to. A featured artist on a few songs stays inside that folder. A song tagged with both names follows the artist most of the album belongs to.")
                     .font(.caption)
                     .foregroundStyle(AppTheme.textSecondary)
 

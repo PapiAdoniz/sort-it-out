@@ -1,13 +1,14 @@
 #!/bin/bash
-# Build a drag-to-Applications disk image for Sort It Out 1.0.
+# Build a drag-to-Applications disk image for Sort It Out.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP="${1:-"$ROOT/build/DerivedData/Build/Products/Release/Sort It Out.app"}"
 DIST="$ROOT/dist"
 STAGING="$DIST/staging"
-RW_DMG="$DIST/Sort.It.Out-1.0.0-rw.dmg"
-DMG="$DIST/Sort.It.Out-1.0.0.dmg"
+VERSION="1.1.0"
+RW_DMG="$DIST/Sort.It.Out-${VERSION}-rw.dmg"
+DMG="$DIST/Sort.It.Out-${VERSION}.dmg"
 VOLUME="Sort It Out"
 BG_DIR="$STAGING/.background"
 
@@ -49,7 +50,7 @@ let titleAttrs: [NSAttributedString.Key: Any] = [
 let titleSize = title.size(withAttributes: titleAttrs)
 title.draw(at: NSPoint(x: (CGFloat(width) - titleSize.width) / 2, y: CGFloat(height) - 78), withAttributes: titleAttrs)
 
-let subtitle = "Version 1.0  ·  Drag the app to Applications" as NSString
+let subtitle = "Version 1.1  ·  Drag the app to Applications" as NSString
 let subtitleAttrs: [NSAttributedString.Key: Any] = [
     .font: NSFont(name: "Avenir Next", size: 14) ?? NSFont.systemFont(ofSize: 14),
     .foregroundColor: NSColor(calibratedWhite: 0.72, alpha: 1)

@@ -11,14 +11,14 @@ enum MusicBrainzMetadata {
         let releaseGroupID: String?
     }
 
-    private static let userAgent = "SortItOut/1.0 ( https://musicbrainz.org/doc/MusicBrainz_API )"
+    private static let userAgent = "SortItOut/1.1 ( https://musicbrainz.org/doc/MusicBrainz_API )"
     private static let throttle = RequestThrottle()
     private static let cache = MatchCache()
 
     static func match(artist: String?, title: String?, album: String?) async -> Match? {
-        let hintedArtist = cleaned(artist)
-        let hintedTitle = cleaned(title)
-        let hintedAlbum = cleaned(album)
+        let hintedArtist = cleaned(artist).map(MusicMetadataReader.sanitizePrimaryArtistName)
+        let hintedTitle = cleaned(title).map(searchTitle)
+        let hintedAlbum = cleaned(album).map(MusicMetadataReader.cleanAlbumName)
         guard hintedTitle != nil || hintedAlbum != nil else { return nil }
 
         let cacheKey = [hintedArtist, hintedTitle, hintedAlbum].map { $0 ?? "" }.joined(separator: "\n")
@@ -26,28 +26,21 @@ enum MusicBrainzMetadata {
             return cached.match
         }
 
-        var terms: [String] = []
-        if let hintedTitle {
-            terms.append("recording:\(quoted(hintedTitle))")
-        }
-        if let hintedArtist {
-            terms.append("artist:\(quoted(hintedArtist))")
-        }
-        if hintedTitle == nil, let hintedAlbum {
-            terms.append("release:\(quoted(hintedAlbum))")
-        }
-
-        guard let recordings = await searchRecordings(query: terms.joined(separator: " AND ")) else {
-            return nil
+        var found: Match?
+        for query in searchQueries(artist: hintedArtist, title: hintedTitle, album: hintedAlbum) {
+            guard let recordings = await searchRecordings(query: query) else { continue }
+            if let match = chooseMatch(
+                recordings: recordings,
+                hintedArtist: hintedArtist,
+                hintedAlbum: hintedAlbum
+            ) {
+                found = match
+                break
+            }
         }
 
-        let match = chooseMatch(
-            recordings: recordings,
-            hintedArtist: hintedArtist,
-            hintedAlbum: hintedAlbum
-        )
-        await cache.store(match, for: cacheKey)
-        return match
+        await cache.store(found, for: cacheKey)
+        return found
     }
 
     static func saveCover(releaseID: String, releaseGroupID: String?, in folder: URL) async {
@@ -82,11 +75,56 @@ enum MusicBrainzMetadata {
         return trimmed
     }
 
+    private static func searchQueries(artist: String?, title: String?, album: String?) -> [String] {
+        var queries: [String] = []
+        if let title, let artist {
+            queries.append("recording:\(quoted(title)) AND artist:\(quoted(artist))")
+        }
+        if let title, let album, let artist {
+            queries.append("recording:\(quoted(title)) AND release:\(quoted(album)) AND artist:\(quoted(artist))")
+        }
+        if let title {
+            queries.append("recording:\(quoted(title))")
+        }
+        if title == nil, let album, let artist {
+            queries.append("release:\(quoted(album)) AND artist:\(quoted(artist))")
+        }
+        var seen: [String] = []
+        for query in queries where !seen.contains(query) {
+            seen.append(query)
+        }
+        return seen
+    }
+
+    /// Drops a leading track number and a featured credit so the lookup uses the song title.
+    private static func searchTitle(_ title: String) -> String {
+        var result = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let patterns = [
+            #"^\d{1,3}[\s.\-_]+"#,
+            #"\s*[\(\[]\s*(feat\.?|ft\.?|featuring|with)\b.*$"#,
+            #"\s+(feat\.?|ft\.?|featuring)\b.*$"#
+        ]
+        for pattern in patterns {
+            if let range = result.range(of: pattern, options: [.regularExpression, .caseInsensitive]) {
+                result.removeSubrange(range)
+                result = result.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        return result.isEmpty ? title : result
+    }
+
     private static func quoted(_ value: String) -> String {
         let escaped = value
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
         return "\"\(escaped)\""
+    }
+
+    private static func namesLooselyMatch(_ lhs: String, _ rhs: String) -> Bool {
+        if loosely(lhs, rhs) { return true }
+        let left = MusicMetadataReader.leadingArtistName(lhs)
+        let right = MusicMetadataReader.leadingArtistName(rhs)
+        return loosely(left, right) || loosely(left, rhs) || loosely(lhs, right)
     }
 
     private static func loosely(_ lhs: String, _ rhs: String) -> Bool {
@@ -151,15 +189,28 @@ enum MusicBrainzMetadata {
         }
 
         var choices: [Choice] = []
-        for recording in recordings where (recording.score ?? 0) >= 80 {
+        for recording in recordings where (recording.score ?? 0) >= 70 {
             guard let recordingArtist = primaryName(recording.artistCredit) else { continue }
-            if let hintedArtist, !loosely(recordingArtist, hintedArtist) {
-                continue
+            let creditNames = (recording.artistCredit ?? []).compactMap { credit in
+                credit.name ?? credit.artist?.name
             }
-
-            for release in recording.releases ?? [] where release.status == "Official" {
+            let releases = recording.releases ?? []
+            let official = releases.filter { $0.status == "Official" }
+            let usable = official.isEmpty ? releases.filter { $0.status != "Bootleg" } : official
+            let artistOnRecording = hintedArtist.map { hinted in
+                ([recordingArtist] + creditNames).contains { namesLooselyMatch($0, hinted) }
+            } ?? true
+            for release in usable {
                 let releaseArtist = primaryName(release.artistCredit) ?? recordingArtist
-                guard loosely(releaseArtist, recordingArtist) else { continue }
+                let albumTitle = release.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !albumTitle.isEmpty else { continue }
+                let albumMatches = hintedAlbum.map { loosely($0, albumTitle) } ?? false
+                let artistOnRelease = hintedArtist.map { namesLooselyMatch(releaseArtist, $0) } ?? true
+                // A featured credit can be the recording artist. Keep the release when it is
+                // that person's album, or when the hinted artist is actually on the recording.
+                guard artistOnRelease || (artistOnRecording && (albumMatches || namesLooselyMatch(releaseArtist, recordingArtist))) else {
+                    continue
+                }
 
                 let kind = release.releaseGroup?.primaryType ?? ""
                 if kind == "Compilation" { continue }
@@ -175,16 +226,14 @@ enum MusicBrainzMetadata {
                 default: kindRank = 2
                 }
 
-                let albumTitle = release.title.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !albumTitle.isEmpty else { continue }
                 choices.append(Choice(
-                    artist: recordingArtist,
+                    artist: releaseArtist,
                     album: albumTitle,
                     releaseID: release.id,
                     releaseGroupID: release.releaseGroup?.id,
                     date: release.date ?? "",
                     kindRank: kindRank,
-                    albumMatch: hintedAlbum.map { loosely($0, albumTitle) } ?? false
+                    albumMatch: albumMatches
                 ))
             }
         }

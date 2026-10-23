@@ -12,7 +12,7 @@ The Xcode project is named FSO. The app you install is **Sort It Out**.
 - **File Inspector.** Sort the scanned files by quality and preview audio.
 - **Smart Place.** Set a watch folder (such as Downloads) and a library folder. Smart Place moves new audio into your library by the artist most of that download belongs to.
 - **Folder styles.** Use one folder per artist, or artist and album folders. A featured credit stays with the main artist. A song tagged with both names follows the majority, and a song from the album stays with that album.
-- **MusicBrainz.** A confident match sets the artist and album, then saves that release’s cover in the folder.
+- **MusicBrainz.** A match uses the album’s artist, then saves that release’s cover in the folder.
 - **Folder Stalker.** Keep folders you browse often, view them together or by artist, and choose the song title color.
 
 Supported audio includes MP3, M4A, AAC, FLAC, WAV, AIFF, OGG, WMA, and ALAC.
@@ -24,12 +24,12 @@ Supported audio includes MP3, M4A, AAC, FLAC, WAV, AIFF, OGG, WMA, and ALAC.
 
 ## Install on a Mac
 
-1. Download [`Sort.It.Out-1.0.0.dmg`](https://github.com/PapiAdoniz/sort-it-out/releases/tag/v1.0.0).
+1. Download [`Sort.It.Out-1.1.0.dmg`](https://github.com/PapiAdoniz/sort-it-out/releases/tag/v1.1.0).
 2. Open the disk image.
 3. Drag **Sort It Out** onto **Applications**.
 4. Eject the disk image and open Sort It Out from Applications.
 
-The first time you open it, macOS may say the app is from an unidentified developer. The 1.0 build is signed for development and is not notarized. Right-click **Sort It Out**, choose **Open**, then choose **Open** again. You only need to do that once.
+The first time you open it, macOS may say the app is from an unidentified developer. The build is signed for development and is not notarized. Right-click **Sort It Out**, choose **Open**, then choose **Open** again. You only need to do that once.
 
 ## First run
 
@@ -40,4 +40,14 @@ The first time you open it, macOS may say the app is from an unidentified develo
 
 ## Windows
 
-There is no Windows installer. Sort It Out uses the Mac file picker, sandboxed folder access, and Apple’s audio frameworks. Those pieces do not run on Windows, so version 1.0 is Mac only.
+There is no Windows installer. Sort It Out uses the Mac file picker, sandboxed folder access, and Apple’s audio frameworks. Those pieces do not run on Windows, so Sort It Out is Mac only.
+
+## Build from source
+
+Open `FSO.xcodeproj` in Xcode 26 or later and run the **Sort It Out** scheme. To build a release from the command line:
+
+```bash
+xcodebuild -project FSO.xcodeproj -scheme "Sort It Out" -configuration Release -destination "platform=macOS" -sdk macosx build
+```
+
+The built app is `Sort It Out.app`.

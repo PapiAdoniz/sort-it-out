@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.0 — October 23, 2026
+
+Smart Place improvements for albums with featured artists and clearer MusicBrainz handling.
+
+- File featured and minority tracks inside the main artist’s folder when most of the album belongs to one artist
+- Count songs sitting directly in the watch folder when choosing the majority artist
+- Use the album’s artist from MusicBrainz so a guest credit does not open its own top-level folder
+- Share a matched release across the rest of a download when only some songs match MusicBrainz
+- Retry lookups with cleaner titles and stop showing “no confident match” during the scan
+
 ## 1.0.0 — October 20, 2026
 
 First release of Sort It Out for Mac.

@@ -133,7 +133,7 @@ struct HelpSheet: View {
                     featureItem(
                         icon: "music.note.list",
                         title: "MusicBrainz",
-                        description: "Smart Place looks each song up on MusicBrainz. A confident match sets the artist and album, then saves that release's cover in the folder."
+                        description: "Smart Place looks each song up on MusicBrainz. A match uses the album's artist, so a featured credit stays in that artist's folder, then saves that release's cover."
                     )
                     featureItem(
                         icon: "wand.and.stars",
